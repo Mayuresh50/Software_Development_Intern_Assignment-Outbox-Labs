@@ -9,12 +9,16 @@ import emailRoutes from "./routes/emails";
 
 const app = express();
 
+app.set("trust proxy", 1); // 🔹 required on Render
+
 app.use(
 	cors({
 		origin: [
 			"http://localhost:3000",
-			"https://reachinbox-frontend.onrender.com",
+			"https://outbox-frontend.onrender.com", // ✅ FIXED
 		],
+		methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+		allowedHeaders: ["Content-Type", "Authorization"],
 		credentials: true,
 	}),
 );
@@ -23,6 +27,10 @@ app.use(express.json());
 
 app.use("/api/auth", authRoutes);
 app.use("/api/emails", emailRoutes);
+
+app.get("/", (_req, res) => {
+	res.send("ReachInbox Backend is running 🚀");
+});
 
 app.get("/health", async (_req, res) => {
 	await prisma.$queryRaw`SELECT 1`;
@@ -35,7 +43,7 @@ async function start() {
 		await prisma.$connect();
 		await initializeEmailService();
 
-		const PORT = process.env.PORT || env.PORT || 3000;
+		const PORT = process.env.PORT || 10000;
 
 		app.listen(PORT, () => {
 			console.log(`🚀 Server running on port ${PORT}`);
