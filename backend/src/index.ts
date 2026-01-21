@@ -10,29 +10,35 @@ import emailRoutes from "./routes/emails";
 const app = express();
 
 /**
- * Trust proxy (Render requirement)
+ * Trust proxy for Render
  */
 app.set("trust proxy", 1);
 
 /**
- * 🚨 TEMPORARY CORS FIX (NO MORE ERRORS)
- * Allows ALL origins + preflight
- * SAFE for submission
+ * 🚨 HARD CORS HEADERS (NO MIDDLEWARE DEPENDENCY)
+ * These headers are added EVEN IF ROUTES FAIL
  */
-app.use(
-	cors({
-		origin: true, // ✅ allow all origins
-		credentials: true,
-		methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-		allowedHeaders: ["Content-Type", "Authorization"],
-	}),
-);
+app.use((req, res, next) => {
+	res.header("Access-Control-Allow-Origin", "*");
+	res.header(
+		"Access-Control-Allow-Headers",
+		"Origin, X-Requested-With, Content-Type, Accept, Authorization",
+	);
+	res.header(
+		"Access-Control-Allow-Methods",
+		"GET, POST, PUT, DELETE, OPTIONS",
+	);
+
+	if (req.method === "OPTIONS") {
+		return res.sendStatus(200);
+	}
+
+	next();
+});
 
 /**
- * Preflight support
+ * Express middleware
  */
-app.options("*", cors());
-
 app.use(express.json());
 
 /**
