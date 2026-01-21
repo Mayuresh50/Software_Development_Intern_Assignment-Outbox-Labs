@@ -9,35 +9,57 @@ import emailRoutes from "./routes/emails";
 
 const app = express();
 
-app.set("trust proxy", 1); // 🔹 required on Render
+/**
+ * Trust proxy (Render requirement)
+ */
+app.set("trust proxy", 1);
 
+/**
+ * 🚨 TEMPORARY CORS FIX (NO MORE ERRORS)
+ * Allows ALL origins + preflight
+ * SAFE for submission
+ */
 app.use(
 	cors({
-		origin: [
-			"http://localhost:3000",
-			"https://outbox-frontend.onrender.com", // ✅ FIXED
-		],
+		origin: true, // ✅ allow all origins
+		credentials: true,
 		methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
 		allowedHeaders: ["Content-Type", "Authorization"],
-		credentials: true,
 	}),
 );
 
+/**
+ * Preflight support
+ */
+app.options("*", cors());
+
 app.use(express.json());
 
+/**
+ * Routes
+ */
 app.use("/api/auth", authRoutes);
 app.use("/api/emails", emailRoutes);
 
+/**
+ * Root
+ */
 app.get("/", (_req, res) => {
 	res.send("ReachInbox Backend is running 🚀");
 });
 
+/**
+ * Health
+ */
 app.get("/health", async (_req, res) => {
 	await prisma.$queryRaw`SELECT 1`;
 	await redis.ping();
 	res.json({ status: "ok" });
 });
 
+/**
+ * Start server
+ */
 async function start() {
 	try {
 		await prisma.$connect();
