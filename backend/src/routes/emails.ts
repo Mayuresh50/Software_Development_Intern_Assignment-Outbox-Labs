@@ -1,120 +1,117 @@
-import { Router, Response } from 'express';
-import { z } from 'zod';
-import { prisma } from '../config/database';
-import { scheduleEmail } from '../services/emailService';
-import { authenticateToken, AuthRequest } from '../middleware/auth';
+import { Router, Response } from "express";
+import { z } from "zod";
+import { prisma } from "../config/database";
+import { emailQueue } from "../config/queue";
+import { authenticateToken } from "../middleware/auth";
+import type { AuthRequest } from "../middleware/auth";
+import { EmailStatus } from "@prisma/client";
 
 const router = Router();
 
-/**
- * Request validation schema
- */
 const scheduleEmailSchema = z.object({
-  senderEmail: z.string().email(),
-  recipients: z.array(z.string().email()).min(1),
-  subject: z.string().min(1),
-  body: z.string().min(1),
-  scheduledAt: z.string().datetime().optional(),
+	senderEmail: z.string().email(),
+	recipients: z.array(z.string().email()).min(1),
+	subject: z.string().min(1),
+	body: z.string().min(1),
+	startTime: z.string().optional(),
+	delayBetweenEmails: z.number().optional(),
 });
 
-/**
- * POST /api/emails/schedule
- */
-router.post(
-  '/schedule',
-  authenticateToken,
-  async (req: AuthRequest, res: Response) => {
-    try {
-      const data = scheduleEmailSchema.parse(req.body);
+router.post("/schedule", authenticateToken, async (req, res: Response) => {
+	try {
+		const { user } = req as AuthRequest;
 
-      const scheduledAt = data.scheduledAt
-        ? new Date(data.scheduledAt)
-        : new Date();
+		if (!user) {
+			return res.status(401).json({ error: "Unauthorized" });
+		}
 
-      // Schedule emails one by one
-      for (const recipientEmail of data.recipients) {
-        await scheduleEmail({
-          userId: req.userId!,   // ✅ THIS WAS MISSING
-          senderEmail: data.senderEmail,
-          recipientEmail,
-          subject: data.subject,
-          body: data.body,
-          scheduledAt,
-        });
-        
-      }
+		// 🔒 ENSURE USER EXISTS (FK FIX)
+		const existingUser = await prisma.user.findUnique({
+			where: { id: user.id },
+		});
 
-      return res.status(201).json({
-        message: `Scheduled ${data.recipients.length} email(s)`,
-      });
-    } catch (err) {
-      if (err instanceof z.ZodError) {
-        return res.status(400).json({
-          error: 'Validation error',
-          details: err.errors,
-        });
-      }
+		if (!existingUser) {
+			return res.status(401).json({
+				error: "User not found. Please login again.",
+			});
+		}
 
-      console.error('Schedule email error:', err);
-      return res.status(500).json({
-        error: 'Failed to schedule emails',
-      });
-    }
-  }
-);
+		const data = scheduleEmailSchema.parse(req.body);
 
-/**
- * GET /api/emails/scheduled
- */
-router.get(
-  '/scheduled',
-  authenticateToken,
-  async (req: AuthRequest, res: Response) => {
-    try {
-      const emails = await prisma.email.findMany({
-        where: {
-          status: 'SCHEDULED',
-        },
-        orderBy: {
-          scheduledAt: 'asc',
-        },
-      });
+		const baseTime = data.startTime
+			? new Date(data.startTime)
+			: new Date(Date.now() + 5000);
 
-      return res.json(emails);
-    } catch (err) {
-      console.error('Get scheduled emails error:', err);
-      return res.status(500).json({
-        error: 'Failed to fetch scheduled emails',
-      });
-    }
-  }
-);
+		const delay = data.delayBetweenEmails ?? 2000;
+		const emails = [];
 
-/**
- * GET /api/emails/sent
- */
-router.get(
-  '/sent',
-  authenticateToken,
-  async (req: AuthRequest, res: Response) => {
-    try {
-      const emails = await prisma.email.findMany({
-        where: {
-          status: { in: ['SENT', 'FAILED'] },
-        },
-        orderBy: {
-          sentAt: 'desc',
-        },
-      });
+		for (let i = 0; i < data.recipients.length; i++) {
+			const scheduledAt = new Date(baseTime.getTime() + i * delay);
 
-      return res.json(emails);
-    } catch (err) {
-      console.error('Get sent emails error:', err);
-      return res.status(500).json({
-        error: 'Failed to fetch sent emails',
-      });
-    }
-  }
-);
+			const email = await prisma.email.create({
+				data: {
+					userId: existingUser.id,
+					senderEmail: data.senderEmail,
+					recipientEmail: data.recipients[i],
+					subject: data.subject,
+					body: data.body,
+					status: EmailStatus.SCHEDULED,
+					scheduledAt,
+				},
+			});
+
+			await emailQueue.add(
+				"send-email",
+				{
+					emailId: email.id,
+				},
+				{
+					delay: Math.max(scheduledAt.getTime() - Date.now(), 0),
+					jobId: email.id,
+				},
+			);
+
+			emails.push(email);
+		}
+
+		res.status(201).json({
+			message: `Scheduled ${emails.length} email(s)`,
+			emails,
+		});
+	} catch (err) {
+		console.error("Schedule email error:", err);
+		res.status(500).json({ error: "Failed to schedule emails" });
+	}
+});
+
+router.get("/scheduled", authenticateToken, async (req, res: Response) => {
+	const { user } = req as AuthRequest;
+	if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+	const emails = await prisma.email.findMany({
+		where: {
+			userId: user.id,
+			status: "SCHEDULED",
+		},
+		orderBy: { scheduledAt: "asc" },
+	});
+
+	res.json(emails);
+});
+
+router.get("/sent", authenticateToken, async (req, res: Response) => {
+	const { user } = req as AuthRequest;
+	if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+	const emails = await prisma.email.findMany({
+		where: {
+			userId: user.id,
+			status: { in: ["SENT", "FAILED"] },
+		},
+		orderBy: { sentAt: "desc" },
+	});
+
+	res.json(emails);
+});
 
 export default router;

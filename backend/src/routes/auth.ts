@@ -1,92 +1,67 @@
-import { Router, Request, Response } from 'express';
-import jwt from 'jsonwebtoken';
-import { prisma } from '../config/database';
-import { env } from '../config/env';
-import { authenticateToken, AuthRequest } from '../middleware/auth';
+import { Router, Request, Response } from "express";
+import jwt from "jsonwebtoken";
+import { prisma } from "../config/database";
+import { env } from "../config/env";
+import { authenticateToken, AuthRequest } from "../middleware/auth";
 
 const router = Router();
 
 /**
- * Google OAuth callback endpoint
- * In production, this would be handled by Google OAuth flow
- * For now, we'll accept user info and create/update user
+ * Mock Google login
  */
-router.post('/google', async (req: Request, res: Response) => {
-  try {
-    console.log('AUTH BODY:', req.body);
-    console.log('JWT_SECRET AT RUNTIME:', env.JWT_SECRET);
+router.post("/google", async (req: Request, res: Response) => {
+	const { googleId, email, name, avatar } = req.body;
 
-    const { googleId, email, name, avatar } = req.body;
+	if (!email || !name) {
+		return res.status(400).json({ error: "Invalid payload" });
+	}
 
-    let user = await prisma.user.findUnique({
-      where: { email },
-    });
-    
-    if (!user) {
-      user = await prisma.user.create({
-        data: {
-          googleId,
-          email,
-          name,
-          avatar,
-        },
-      });
-    } else if (!user.googleId) {
-      user = await prisma.user.update({
-        where: { email },
-        data: { googleId },
-      });
-    }
-    // console.log('USER:', user);
-    // console.log('JWT_SECRET AT RUNTIME:', env.JWT_SECRET);  
+	let user = await prisma.user.findUnique({
+		where: { email },
+	});
 
-    const token = jwt.sign(
-      {
-        userId: user.id,
-        email: user.email,
-        name: user.name,
-      },
-      env.JWT_SECRET,
-      {
-        expiresIn: env.JWT_EXPIRES_IN,
-      }
-    );
-    
-    
+	if (!user) {
+		user = await prisma.user.create({
+			data: {
+				googleId,
+				email,
+				name,
+				avatar,
+			},
+		});
+	}
 
-    return res.json({ token, user });
-  } catch (error) {
-    console.error('🔥 AUTH ERROR (REAL):', error);
-    return res.status(500).json({
-      error: 'Authentication failed',
-      details: error instanceof Error ? error.message : String(error),
-    });
-  }
+	const token = jwt.sign(
+		{
+			userId: user.id,
+			email: user.email,
+			name: user.name,
+		},
+		env.JWT_SECRET,
+		{ expiresIn: env.JWT_EXPIRES_IN },
+	);
+
+	res.json({ token, user });
 });
-/**
- * Get current user
- */
-router.get('/me', authenticateToken, async (req: AuthRequest, res: Response) => {
-  try {
-    const user = await prisma.user.findUnique({
-      where: { id: req.userId! },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        avatar: true,
-      },
-    });
 
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
+router.get("/me", authenticateToken, async (req, res) => {
+	const { user } = req as AuthRequest;
 
-    res.json({ user });
-  } catch (error) {
-    console.error('Get user error:', error);
-    res.status(500).json({ error: 'Failed to get user' });
-  }
+	if (!user) {
+		return res.status(401).json({ error: "Unauthorized" });
+	}
+
+	const dbUser = await prisma.user.findUnique({
+		where: { id: user.id },
+		select: {
+			id: true,
+			email: true,
+			name: true,
+			avatar: true,
+		},
+	});
+
+	res.json({ user: dbUser });
 });
 
 export default router;

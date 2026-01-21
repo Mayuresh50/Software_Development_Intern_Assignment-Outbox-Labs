@@ -1,52 +1,45 @@
-import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
-import { env } from '../config/env';
+import { Request, Response, NextFunction } from "express";
+import jwt from "jsonwebtoken";
+import { env } from "../config/env";
 
-export interface AuthRequest extends Request {
-  userId?: string;
-  user?: {
-    id: string;
-    email: string;
-    name: string;
-  };
+export interface AuthUser {
+	id: string;
+	email: string;
+	name: string;
 }
 
-/**
- * Verify JWT token and attach user info to request
- */
-export async function authenticateToken(
-  req: AuthRequest,
-  res: Response,
-  next: NextFunction
-): Promise<void> {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
+export interface AuthRequest extends Request {
+	user?: AuthUser;
+}
 
-  if (!token) {
-    res.status(401).json({ error: 'Authentication required' });
-    return;
-  }
+export function authenticateToken(
+	req: Request,
+	res: Response,
+	next: NextFunction,
+): void {
+	const authHeader = req.headers.authorization;
+	const token = authHeader?.split(" ")[1];
 
-  try {
-    const decoded = jwt.verify(token, env.JWT_SECRET) as {
-      userId: string;
-      email: string;
-      name: string;
-    };
+	if (!token) {
+		res.status(401).json({ error: "Authentication required" });
+		return;
+	}
 
-    req.userId = decoded.userId;
-    req.user = {
-      id: decoded.userId,
-      email: decoded.email,
-      name: decoded.name,
-    };
+	try {
+		const decoded = jwt.verify(token, env.JWT_SECRET) as {
+			userId: string;
+			email: string;
+			name: string;
+		};
 
-    next();
-  }catch (error) {
-    console.error('Auth error FULL:', error);
-    return res.status(500).json({
-      error: 'Authentication failed',
-      message: error instanceof Error ? error.message : String(error),
-    });
-  }
+		(req as AuthRequest).user = {
+			id: decoded.userId,
+			email: decoded.email,
+			name: decoded.name,
+		};
+
+		next();
+	} catch {
+		res.status(401).json({ error: "Invalid or expired token" });
+	}
 }
