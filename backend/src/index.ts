@@ -9,7 +9,16 @@ import emailRoutes from "./routes/emails";
 
 const app = express();
 
-app.use(cors());
+app.use(
+	cors({
+		origin: [
+			"http://localhost:3000",
+			"https://reachinbox-frontend.onrender.com",
+		],
+		credentials: true,
+	}),
+);
+
 app.use(express.json());
 
 app.use("/api/auth", authRoutes);
@@ -22,12 +31,19 @@ app.get("/health", async (_req, res) => {
 });
 
 async function start() {
-	await prisma.$connect();
-	await initializeEmailService();
+	try {
+		await prisma.$connect();
+		await initializeEmailService();
 
-	app.listen(env.PORT, () => {
-		console.log(`Server running on port ${env.PORT}`);
-	});
+		const PORT = process.env.PORT || env.PORT || 3000;
+
+		app.listen(PORT, () => {
+			console.log(`🚀 Server running on port ${PORT}`);
+		});
+	} catch (error) {
+		console.error("❌ Failed to start server:", error);
+		process.exit(1);
+	}
 }
 
 start();
